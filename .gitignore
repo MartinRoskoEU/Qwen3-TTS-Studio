@@ -1,0 +1,60 @@
+# Project-local and conventional Python environments
+/.cenv/
+/.venv/
+/venv/
+/env/
+
+# Downloaded models and associated caches
+/models/*
+!/models/.gitkeep
+.cache/
+.huggingface/
+.hf/
+
+# User-provided reference recordings
+/samples/*
+!/samples/.gitkeep
+
+# Generated audio, transcripts and other output
+/output/*
+!/output/.gitkeep
+
+# Python bytecode and packaging artifacts
+__pycache__/
+*.py[cod]
+*.pyd
+*.egg
+*.egg-info/
+build/
+dist/
+
+# Test, lint, and type-check caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.tox/
+.nox/
+.coverage
+.coverage.*
+htmlcov/
+
+# Logs and temporary files
+*.log
+*.tmp
+*.temp
+*.bak
+*.swp
+*.swo
+/logs/
+
+# Local secrets and environment overrides
+.env
+.env.*
+!.env.example
+
+# IDE and OS-specific files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini
