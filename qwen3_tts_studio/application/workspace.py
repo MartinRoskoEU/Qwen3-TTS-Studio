@@ -3,6 +3,7 @@
 # Copyright (c) 2026 Nendis. SPDX-License-Identifier: MIT
 
 from dataclasses import dataclass
+from enum import StrEnum
 from pathlib import Path
 
 
@@ -40,11 +41,31 @@ def validate_reference(path: Path) -> Path:
     return resolved
 
 
+class CloningMode(StrEnum):
+    ICL = "icl"
+    X_VECTOR_ONLY = "x_vector_only"
+
+
 @dataclass
 class WorkspaceSession:
     reference: Path | None = None
     transcript: str = ""
     speech_text: str = ""
+    cloning_mode: CloningMode = CloningMode.ICL
+
+    def voice_clone_arguments(self) -> dict[str, object]:
+        """Validate future Qwen3-TTS prompt arguments without loading a model."""
+        if self.reference is None:
+            raise ValueError("Load a reference recording before generating speech.")
+        arguments: dict[str, object] = {
+            "ref_audio": str(self.reference),
+            "x_vector_only_mode": self.cloning_mode == CloningMode.X_VECTOR_ONLY,
+        }
+        if self.cloning_mode == CloningMode.ICL:
+            if not self.transcript.strip():
+                raise ValueError("ICL Mode requires a nonempty reference transcript.")
+            arguments["ref_text"] = self.transcript.strip()
+        return arguments
 
     @property
     def has_drafts(self) -> bool:
@@ -61,6 +82,7 @@ class WorkspaceSession:
     def new_voice(self) -> None:
         self.clear_reference()
         self.speech_text = ""
+        self.cloning_mode = CloningMode.ICL
 
     def select_reference(self, path: Path) -> None:
         self.apply_reference(validate_reference(path))

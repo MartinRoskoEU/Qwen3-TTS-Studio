@@ -24,11 +24,19 @@ Model weights are downloaded separately and are not committed to this repository
 ## Faster Whisper — Python Library
 
 - Project: [SYSTRAN/faster-whisper](https://github.com/SYSTRAN/faster-whisper)
+- Verified runtime version: **1.2.1**, used for local background transcription.
 - License: **MIT License**
 - Upstream copyright: **Copyright (c) 2023 SYSTRAN**
 - License text: https://github.com/SYSTRAN/faster-whisper/blob/master/LICENSE
 
 When redistributing this library or substantial portions of it, preserve the upstream copyright and permission notice.
+
+## CTranslate2 / PyAV — Transcription Runtime
+
+- [CTranslate2](https://github.com/OpenNMT/CTranslate2), verified version **4.8.2**: **MIT License**. Upstream copyright: Copyright (c) 2018- SYSTRAN; Copyright (c) 2019- The OpenNMT Authors. Retain the [upstream license and notices](https://github.com/OpenNMT/CTranslate2/blob/master/LICENSE).
+- [PyAV](https://github.com/PyAV-Org/PyAV), verified version **18.1.0**: **BSD 3-Clause**, as identified by the installed distribution's license expression and `licenses/LICENSE.txt`. Copyright is retained by the original committers; preserve the exact distribution's license and author notices. See the [PyAV license](https://github.com/PyAV-Org/PyAV/blob/master/LICENSE.txt).
+
+Faster Whisper uses CTranslate2 for inference and PyAV for audio decoding. PyAV links FFmpeg libraries; their applicable licenses depend on the exact build and enabled components. Review [FFmpeg licensing](https://ffmpeg.org/legal.html) and include the shipped binaries' notices and source obligations before redistribution. Optional CUDA libraries have separate terms. No runtime binaries or model weights are added to this repository.
 
 ## Faster Whisper Small — ASR Model
 
@@ -73,7 +81,7 @@ Retain the exact shipped distribution's license texts, copyright notices, condit
 
 ## Other Runtime Dependencies
 
-Additional dependencies may include PyTorch, TorchAudio, CTranslate2, PyAV, and packaging libraries chosen later. **Do not assume they all have the same license.**
+Additional dependencies include Faster Whisper's transitive packages; future synthesis may use PyTorch and TorchAudio. Packaging libraries may be chosen later. **Do not assume they all have the same license.**
 
 Before packaging and distributing a Windows application, produce a complete inventory of **the exact shipped versions and assets** and include all license texts, required copyright notices, and attribution files. Check optional GPU libraries separately, where relevant.
 
