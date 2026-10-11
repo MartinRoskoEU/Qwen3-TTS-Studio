@@ -162,7 +162,9 @@ class DesktopChecks(unittest.TestCase):
 
         def check_visible_contents():
             workspace = window.centralWidget()
-            self.assertEqual(len(window.findChildren(Section)), 5)
+            self.assertEqual(len(window.findChildren(Section)), 6)
+            self.assertEqual(window.left_splitter.count(), 3)
+            self.assertIs(window.left_splitter.widget(2), window.profile_section)
             for section in window.findChildren(Section):
                 origin = section.mapTo(workspace, section.rect().topLeft())
                 self.assertTrue(workspace.rect().contains(origin))
@@ -203,23 +205,24 @@ class DesktopChecks(unittest.TestCase):
             check_visible_contents()
         for splitter in (window.left_splitter, window.right_splitter, window.workspace_splitter):
             self.assertFalse(splitter.childrenCollapsible())
-            for position in (0, splitter.height()):
-                splitter.moveSplitter(position, 1)
-                QTest.qWait(50)
-                self.assertTrue(all(size > 0 for size in splitter.sizes()))
-                check_visible_contents()
+            for handle_index in range(1, splitter.count()):
+                for position in (0, splitter.height()):
+                    splitter.moveSplitter(position, handle_index)
+                    QTest.qWait(50)
+                    self.assertTrue(all(size > 0 for size in splitter.sizes()))
+                    check_visible_contents()
 
         window.resize(1120, 900)
         window.workspace_splitter.setSizes([520, 230])
-        window.left_splitter.setSizes([300, 220])
+        window.left_splitter.setSizes([195, 165, 180])
         window.right_splitter.setSizes([290, 230])
         QTest.qWait(50)
         handle = window.workspace_splitter.handle(1)
         before = window.workspace_splitter.sizes()
         point = handle.rect().center()
         QTest.mousePress(handle, Qt.MouseButton.LeftButton, pos=point)
-        QTest.mouseMove(handle, point + QPoint(0, -25))
-        QTest.mouseRelease(handle, Qt.MouseButton.LeftButton, pos=point + QPoint(0, -25))
+        QTest.mouseMove(handle, point + QPoint(0, 20))
+        QTest.mouseRelease(handle, Qt.MouseButton.LeftButton, pos=point + QPoint(0, 20))
         QTest.qWait(50)
         self.assertNotEqual(window.workspace_splitter.sizes(), before)
         check_visible_contents()
@@ -227,9 +230,8 @@ class DesktopChecks(unittest.TestCase):
         window.speech_editor.clear()
         for module in ("torch", "qwen_tts", "faster_whisper"):
             self.assertNotIn(module, sys.modules)
-        with patch("qwen3_tts_studio.ui.main_window.QDesktopServices.openUrl", return_value=True) as open_url:
-            window.open_output_button.click()
-            self.assertEqual(open_url.call_args.args[0].toLocalFile(), str(window.paths.output).replace("\\", "/"))
+        self.assertFalse(hasattr(window, "open_output_button"))
+        self.assertFalse(window.stop_generation_button.isEnabled())
         about_titles = []
         def close_about():
             active = self.app.activeModalWidget()

@@ -2,203 +2,118 @@
 
 **Offline-first desktop voice cloning, speech synthesis, and transcription.**
 
-Qwen3 TTS Studio is a Windows-focused application project using Qwen3-TTS and Faster Whisper. Its goal is to make it practical to prepare, clone, generate, review, and export voices locally, including voices from short reference recordings.
+A Windows desktop application built with PySide6, local Qwen3-TTS 1.7B Base, and Faster Whisper Small. Application source is MIT-licensed, Copyright (c) 2026 Nendis.
 
-## Project Status
+## Run
 
-**Desktop workspace with reference audio playback and local transcription (0.1.0).**
-
-A runnable PySide6 desktop application is available. The current version includes:
-
-- A compact, resizable workspace with Reference Audio above Transcription on the left, Speech Text above Generation on the right, and a larger Output section across the bottom. Splitters adjust column widths, the panels within each column, and the balance between the workspace and Output.
-- Import one local WAV or OGG recording using Choose reference (`Ctrl+O`) or by dropping it from File Explorer into Reference Audio. The filename and duration appear after validation; the full path is available in the filename tooltip. Import reads the original in place without copying or modifying it.
-- Reference playback uses Qt Multimedia with an actual waveform, a thin moving playhead, one Play/Pause toggle, and current/total time. Play resumes at the paused position and replays from the beginning after completion. Click the waveform to seek or drag to scrub; playback resumes after scrubbing if it was playing. During dragging, the playhead follows the mouse immediately and the paused source seeks on release. The focused codec checks cover PCM WAV and OGG Vorbis; other codec variants depend on the installed decoders and fail with an actionable message if unsupported.
-- Played audio appears in brighter blue with a subtle background tint; unplayed audio uses muted blue-gray in both themes. Qt Widgets/QPainter cache the waveform geometry and rendered layers. Playback interpolates Qt's authoritative position using a monotonic clock, with notification corrections. Qt's shared animation driver schedules updates without an application-defined frame rate; only the changed waveform strip repaints. Continuous animation stops while paused, stopped, stalled, scrubbing, or finished.
-- Output uses the same player component, with playback and Export WAV disabled until generated audio exists. There is no separate timeline slider. Open output folder remains functional.
-- Waveform preparation runs in cancellable background workers with elapsed-time status. Superseded imports cannot replace the active reference. A failed import preserves the previous recording and drafts; successful replacement releases the previous playback source. Keep the source file available during playback.
-- Editable transcript and speech text drafts, with a speech character count. Drafts remain in memory only. Closing with drafts requires discard confirmation; replacing a reference requires confirmation before clearing its transcript. The transcript is temporarily read-only during import and clears only after a different reference loads successfully.
-- A compact voice cloning mode selector defaults to **ICL Mode – With Transcription**. **X-Vector Only – Without Transcription** disables the transcript editor and Transcribe reference while retaining the text. Switching back restores editing. Manual typing, pasting, and correction are available in ICL even before reference import; importing audio never starts transcription automatically.
-- **Transcribe reference** runs the existing local Faster Whisper Small model in a background worker, automatically detects the language, and places recognized text in the editor for review. It is enabled only in ICL with a loaded reference and no pending import/transcription. The model loads on the first request and is reused afterward, including after Clear reference and New Voice. Status shows loading/transcription, elapsed time, and **GPU (CUDA)** or **CPU**. The completed status tooltip includes actual precision and any GPU error that caused CPU fallback; errors are also logged. Empty results and errors keep the existing draft.
-- Automatic transcription asks before replacing nonempty text. Declining preserves the whole workspace. Editing the transcript, switching modes, selecting another reference, Clear reference, or New Voice invalidates the pending result. Old results cannot overwrite later edits, even if you switch back to the original mode. Model operations run serially; after cancellation a new request waits until native work reaches a cancellation checkpoint. Closing waits responsively for work and background model cleanup.
-- Application state prepares validated future Qwen3-TTS prompt arguments: ICL requires nonempty reviewed `ref_text` and sets `x_vector_only_mode=False`; X-Vector Only omits `ref_text` and sets `x_vector_only_mode=True`. Speech generation remains unimplemented.
-- Clear reference, next to Choose reference, unloads reference audio and clears its transcription while keeping Speech Text, cloning mode, and Output. It asks before discarding nonempty transcription; Cancel leaves the workspace intact, including an active transcription. Application > New Voice (`Ctrl+N`) resets the reference, both text drafts, Output preview, and cloning mode to ICL, with confirmation whenever the workspace contains content or a pending import. Both actions cancel obsolete loading/transcription results and never delete files. New Voice preserves loaded models, appearance preferences, and splitter positions.
-- Centralized light/dark styling that follows Windows appearance by default, including runtime notifications. Settings offers optional Light/Dark overrides and remembers the choice locally through Qt settings.
-- Functional New Voice, Settings, About, and Exit menu actions, and an Open output folder button. Keyboard shortcuts: `Ctrl+N` for New Voice, `Ctrl+O` to select a reference, `Ctrl+,` for Settings, and `Ctrl+Q` to exit. Space toggles the player containing focus; elsewhere it toggles the playing player or Reference Audio (Output if only Output is loaded). Space inside text inputs/editors continues to enter text, and modal dialogs retain their native keyboard behavior.
-
-**TTS inference, audio post-processing, and export are not implemented.** Their workflow actions are disabled placeholders. Startup loads Qt Multimedia without importing AI libraries or accessing model weights. SoundFile and NumPy load in the decoding worker when importing a reference; Faster Whisper/CTranslate2 load only when requesting transcription. Reference import, playback, and transcription run locally without model downloads.
-
-Initial command-line experiments with Qwen3-TTS and Faster Whisper previously succeeded on CPU and an NVIDIA GPU. Those scripts were removed; those results do not establish model support in the desktop application. The items under *Planned Features* remain goals.
-
-## Planned Features
-
-- Clone a voice from a short WAV or OGG reference recording.
-- Generate speech with Qwen3-TTS 1.7B Base.
-- Generate custom text, including longer passages, for review and export.
-- Choose CPU or supported NVIDIA GPU execution.
-- Expose compatible model sampling settings and report timing information.
-- Preview and compare generated results.
-- Save WAV output using unique filenames.
-- Later add optional, non-destructive tempo, pitch, and pause processing.
-- Display honest progress/status, elapsed time, and actionable errors.
-
-## Technology and Target Platform
-
-- Windows (initial target)
-- Python 3.12
-- Conda environment located in `.cenv/` inside the project
-- PySide6 / Qt Widgets and Qt Multimedia (verified with version `6.12.0`)
-- SoundFile `0.14.0` / libsndfile `1.2.2` and NumPy `2.5.3` (reference waveform decoding)
-- [Qwen3-TTS](https://github.com/QwenLM/Qwen3-TTS), initially `Qwen3-TTS-12Hz-1.7B-Base`
-- [Faster Whisper](https://github.com/SYSTRAN/faster-whisper) `1.2.1`, Small; CTranslate2 `4.8.2` and PyAV `18.1.0` (local transcription)
-- PyTorch and TorchAudio (future model integrations)
-
-The desktop shell was checked on the development Windows machine using Python `3.12.15` and PySide6 / Qt `6.12.0`. Other platforms and packaged executables have not been tested.
-
-The original AI experiments used an RTX 4070 with PyTorch and TorchAudio `2.11.0+cu130`. This is a record of that machine, **not a universal requirement**. AI installation instructions and compatible versions will be finalized with the model integrations.
-
-## Repository Layout
-
-```text
-Qwen3 TTS Studio/
-├── .cenv/                 # Local Conda environment (not tracked)
-├── models/                # Locally downloaded model data (not tracked)
-│   └── .gitkeep
-├── output/                # Generated audio and results (not tracked)
-│   └── .gitkeep
-├── samples/               # Reference audio (not tracked)
-│   └── .gitkeep
-├── qwen3_tts_studio/
-│   ├── __main__.py         # python -m entry point
-│   ├── app.py              # Application composition and event loop
-│   ├── application/        # Session state, validation, audio/transcription workers
-│   ├── audio/              # File validation and waveform envelope preparation
-│   ├── ui/                 # Window, reusable player, waveform, dialogs, and themes
-│   │   └── assets/         # Application icon (Qwen3-TTS-Studio-icon.ico)
-│   └── integrations/       # Lazy offline Faster Whisper adapter; future TTS boundary
-├── tests/
-│   ├── test_desktop.py     # Focused workspace checks; no inference
-│   ├── test_audio.py       # Local codec, playback, drop, and cancellation checks
-│   └── test_transcription.py # Modes, offline validation, and worker/result safety
-├── requirements-desktop.txt
-├── requirements-transcription.txt
-├── .gitignore
-├── AGENTS.md
-├── LICENSE
-├── README.md
-└── THIRD_PARTY_NOTICES.md
-```
-
-Session state and path validation remain independent of Qt and model libraries. The application layer orchestrates reference decoding and serial transcription through Qt threads; the audio layer reads bounded blocks and produces a compact peak envelope without retaining the entire recording. The reusable UI player owns Qt playback resources and validates a replacement before committing it. The integration adapter owns the resident Faster Whisper model and uses only a validated local directory. Request identities and editor revisions protect results. Shutdown cancels preparation/transcription and keeps the event loop responsive until workers finish and unload the model. Future TTS inference and export must also run off the UI thread.
-
-## Environment Setup
-
-Open the **Qwen3 TTS Studio** directory in Visual Studio Code. In the integrated **PowerShell** terminal, activate the existing project-local environment:
+From the repository root in PowerShell, use the verified startup command:
 
 ```powershell
-conda activate .\.cenv
+& .\.cenv\python.exe -m qwen3_tts_studio
 ```
 
-Check that it is active:
+This selects the existing Python 3.12 environment without activation. Alternatively, activate it with `conda activate .\.cenv` and run `python -m qwen3_tts_studio`.
 
-```powershell
-python --version
-```
+Startup does not import Torch, Qwen, or Faster Whisper, or load model weights. Model setup is unnecessary for launching the workspace, entering drafts, or playing reference audio.
 
-The intended Python version is 3.12. The existing `.cenv` already contains the desktop and Faster Whisper dependencies; no packages or model files were changed for this implementation.
+## Voice Preparation Workflow
 
-If you need to recreate the environment on a different machine, you can first create an empty local environment:
+1. **Choose reference** (`Ctrl+O`) or drop one WAV/OGG file into Reference Audio. Its filename, duration, and actual waveform appear after background validation. The original is read in place; keep it available during preparation and reference playback. Importing never starts transcription or voice preparation automatically.
+2. Select the cloning mode. **ICL Mode – With Transcription** is the default: enter, paste, or edit the reference transcript, or use **Transcribe reference** and review the result. ICL requires nonempty reference text. **X-Vector Only – Without Transcription** disables the editor and transcription action while keeping any draft; preparation uses audio without reference text.
+3. Click **Prepare Voice**. The application lazily loads the local Base model and calls its public `create_voice_clone_prompt()` API. It caches the resulting profile, including speaker embedding, reference speech codes and text for ICL, and mode flags. Status shows **Not Prepared**, **Preparing**, **Ready**, or **Needs Preparation**. Prepare Voice remains available for preparing again when idle.
+4. Enter **Speech Text** and click **Generate Speech**. Each click starts a new stochastic generation using `generate_voice_clone(voice_clone_prompt=...)` and the cached profile. The application does not prepare the voice again. Repeated unchanged text can produce different recordings. Editing Speech Text preserves the profile; changing the reference, transcript, or cloning mode invalidates it.
+5. Review the latest generated recording in **Output**. Generation keeps float32 PCM, sample rate, waveform, playback data, and generation metadata in RAM. It creates no WAV, JSON sidecar, or temporary audio file. A successful replacement is published only after Qt accepts the new playback buffer; errors and cancellation preserve the previous recording. **Export WAV** is the only action that saves generated audio: choose a filename/destination and confirm before overwriting. The IEEE float WAV preserves the generated float32 samples and sample rate without PCM16 quantization. Output shows the exported filename and its destination in a tooltip. Export previous recordings before replacing them if you want to keep them.
 
-```powershell
-conda create --prefix .\.cenv python=3.12 -y
-conda activate .\.cenv
-```
+Generation requires a ready profile and nonempty Speech Text. Preparation, profile file operations, and generation use serial background workers; controls prevent overlapping work. Model loading, inference, RAM encoding, waveform preparation, and export stay off the UI thread. Processing status reports elapsed time and the actual model device/precision. Transcription and voice operations are also prevented from starting together, avoiding concurrent GPU inference. Generation no longer requires a writable output directory.
 
-**This only creates Python.** [requirements-desktop.txt](requirements-desktop.txt) records the verified UI and reference-decoding dependencies, separate from AI dependencies. On a newly created environment, install the desktop dependencies explicitly:
+**Stop Generation**, next to Generate Speech, requests cancellation immediately and shows **Stopping generation...** until the worker actually finishes, then **Generation canceled.** Repeated Stop clicks are harmless. The installed Qwen-TTS 0.1.1 public voice-cloning path does **not** support actual mid-inference interruption: its core `generate()` does not forward a `stopping_criteria` callback to the talker. The native call finishes safely in its background worker; cancellation checkpoints discard the result before RAM preparation/publication. No thread is terminated and no CUDA resources are destroyed during inference. Another operation waits until the worker has finished. Stop preserves the previous Output, reference playback, prepared profile, and loaded model. Canceling during output preflight also preserves the previous preview.
 
-```powershell
-python -m pip install -r requirements-desktop.txt
-```
+## Voice Profiles
 
-For local transcription, [requirements-transcription.txt](requirements-transcription.txt) separately records the installed Faster Whisper, CTranslate2, and PyAV versions. On a new environment, install those explicitly with `python -m pip install -r requirements-transcription.txt`, and supply the Small model separately. Recreating an environment has not been tested. A complete synthesis dependency manifest is still pending. CUDA-enabled PyTorch must be installed from a build appropriate for the target OS, Python version, and GPU driver; it is unnecessary for launching the workspace or for Faster Whisper CPU transcription.
+**Save Profile** writes a `.pt` file; an existing destination requires confirmation. **Load Profile** validates the file before replacing the current preparation and restores its cloning mode. Invalid or incompatible profiles preserve the current reference, transcript, and profile. Loading keeps Speech Text and the existing Output preview.
 
-## Models
+An imported profile is ready without the original reference recording or a transcript in the editor. ICL reference text is retained inside the profile. The Qwen model loads lazily when generation requires it. Missing original reference audio alone does not invalidate an imported profile.
 
-Models are downloaded separately and are **not included in Git**.
+Voice Profile is a separate panel with **Prepare Voice**, **Load Profile**, **Save Profile**, and **Clear Profile**, plus the current profile name and status. Prepared profiles use the reference filename as their name; saving updates the displayed name to the profile filename. Imported profiles use their `.pt` filename.
 
-Initial model paths used during development:
+Profiles prepared from the current reference leave Reference Audio and Transcription editable; changes invalidate preparation. Imported profiles lock those two sections, including selection, drag/drop, transcription editing, automatic transcription, and mode selection. Application state also rejects reference-input changes while imported, so programmatic calls cannot bypass disabled controls. Prepare Voice is unavailable while imported; Load Profile can replace it after confirmation and validation. Failed or canceled replacement keeps the existing workspace. Successful import clears unrelated reference inputs before locking them.
+
+**Clear Profile** cancels pending voice work, removes the cached profile, resets its name/status, and unlocks reference inputs. It preserves Speech Text, existing Output, loaded models, and every file on disk. Prepared reference inputs remain available for preparing again. **New Voice** remains the complete workspace reset.
+
+Voice Profile and Generation share a compact progress presentation: an indeterminate Qt bar during real work, the current stage, elapsed time, and GPU/CPU information when known. Generation reports model loading, input preparation, speech generation, saving audio to memory, waveform preparation, playback preflight, and completion. No percentages or invented intermediate stages are shown. Generation stays active through Qt's acceptance of the output recording and completes only when the preview is ready. Errors stop the indicator, preserve the previous recording/profile where applicable, and include technical details in tooltips and traceback logs. Clear Profile and resets stop the UI indicator immediately; a canceled native call may still need to finish before another job can start.
+
+The versioned format contains only dictionaries, primitive metadata, and CPU tensors. Loading uses `torch.load(weights_only=True, map_location="cpu")`; it never unpickles Qwen prompt classes or adds arbitrary objects to a safe list. Validation checks tensor shapes, finite embeddings, code ranges, mode flags, required ICL text, and the local model/tokenizer configuration fingerprint. Profiles are limited to 128 MiB. These are Studio profiles, not arbitrary upstream `.pt` objects. Compatibility compares configurations, not a checksum of the complete model weights; use the same Base weights. Profiles contain voice data and, in ICL mode, reference transcription. Profile files are ignored by Git.
+
+## Playback, Layout, and Workspace
+
+- The resizable two-column workspace has three independent left panels: Reference Audio, Transcription, and Voice Profile. Speech Text and Generation remain on the right, with Output across the bottom. Existing splitters adjust each area, including both dividers in the left column. The six sections fit the existing 900 × 870 minimum window size. The reference waveform is compact; Output retains a larger waveform area. The icon and Windows taskbar identity are preserved.
+- Both players share Qt Multimedia playback and cached Qt Widgets/QPainter waveforms. Played audio is brighter blue with subtle highlighting; unplayed audio is muted blue-gray. The thin playhead interpolates Qt's authoritative playback position using a monotonic clock and Qt's shared animation driver. There is no separate slider or fixed display-specific frame rate.
+- Output uses an in-memory WAV container through Qt's supported [`QMediaPlayer.setSourceDevice()`](https://doc.qt.io/qt-6/qmediaplayer.html#setSourceDevice) API. Each player's `QBuffer` owns its bytes and stays alive with the media player until its source is detached and the player is destroyed. Reference WAV/OGG files retain their existing file playback path. Playback never creates temporary audio files.
+- **Play/Pause** resumes from the paused position and replays after completion. Click to seek or drag to scrub directly in the waveform. Current position and duration remain visible. Output controls are disabled until actual audio is loaded. PCM WAV and OGG Vorbis are verified; other variants depend on the available decoders.
+- **Clear reference** unloads the recording, clears its transcription, and invalidates its prepared voice. It confirms before discarding nonempty transcription, keeps Speech Text/Output, and never deletes files.
+- **Application > New Voice** (`Ctrl+N`) confirms before discarding workspace content, then clears the reference, transcript, profile, Speech Text, and generated audio in RAM and restores ICL mode. Cancel changes nothing. An active generation is invalidated and finishes safely without restoring audio. Loaded models, preferences, and splitter positions are preserved; exported recordings and saved profiles remain on disk. Clear Profile and Clear Reference preserve the current in-memory Output.
+- Requests carry identities and workspace revisions. Edits, reference changes, clearing, and New Voice discard obsolete worker results and pending Output loads. Native Qwen model calls cannot be interrupted mid-call with the installed public API; canceled results are ignored, and another job waits for that call to return. Shutdown stays responsive while workers finish and release models.
+- Centralized light/dark styling follows Windows appearance, including runtime notifications. Settings offers persistent Light/Dark overrides. Menus contain New Voice, Settings, About, and Exit; primary actions stay in the workspace.
+- Drafts remain in memory only; closing with text drafts asks for discard confirmation. Shortcuts: `Ctrl+O` reference, `Ctrl+N` New Voice, `Ctrl+,` Settings, `Ctrl+Q` Exit. Space toggles the focused or active player outside text inputs; editors and modal dialogs retain native keyboard behavior.
+
+## Local Models and Runtime
+
+Models are supplied separately and never downloaded by these workflows:
 
 ```text
 models/Qwen3-TTS-12Hz-1.7B-Base/
 models/faster-whisper/
 ```
 
-Official model references:
+Qwen preparation/generation requires a complete local Base model and speech tokenizer. The adapter validates required files before loading from an absolute local path with `local_files_only=True`. The RTX 4070 was verified using **CUDA, bfloat16, and SDPA**. BF16 selection checks runtime support; FP16 is used for a compatible GPU without BF16, and CPU float32 is the fallback if GPU initialization fails. Runtime GPU out-of-memory errors keep drafts/profile and report recovery guidance. CPU synthesis and other GPU configurations were not exercised in this change.
 
-- [Qwen3-TTS 1.7B Base](https://huggingface.co/Qwen/Qwen3-TTS-12Hz-1.7B-Base)
-- [Faster Whisper Small](https://huggingface.co/Systran/faster-whisper-small)
+Faster Whisper lazily loads and reuses Small, detects the spoken language, and runs in a background thread. It confirms before replacing nonempty text, preserves drafts on errors/empty results, and discards results after manual edits, mode/reference changes, Clear Reference, or New Voice. A direct model directory or the existing `models--Systran--faster-whisper-small/refs/main` cache layout is accepted. Required files are `model.bin`, `config.json`, `tokenizer.json`, and `vocabulary.txt`.
 
-Transcription accepts a direct Small model directory at `models/faster-whisper/`, or the existing Hugging Face cache under `models/faster-whisper/models--Systran--faster-whisper-small/`. For a cache it reads `refs/main` and uses the corresponding local `snapshots/<revision>/`. Required files are `model.bin`, `config.json`, `tokenizer.json`, and `vocabulary.txt`; an incomplete or missing model produces an actionable error without downloading anything. Paths are resolved relative to the application source, independent of the working directory.
+On Windows, its existing process-local CUDA setup registers NVIDIA DLL directories under the selected interpreter's `Lib/site-packages/nvidia/{cublas,cudnn,cuda_nvrtc}/bin`, retains `os.add_dll_directory()` handles, and loads matching cuBLAS/cuDNN cores before CTranslate2. It does not modify PATH, system CUDA, or PyTorch configuration. Faster Whisper prefers CUDA float16 and retains CPU fallback with logged/status-tooltip errors. Actual CUDA transcription was verified both before and after Qwen inference in the same application process.
 
-The adapter prefers CUDA float16 when supported, with CPU fallback on a Windows DLL setup, CUDA initialization, or CUDA transcription error. Device and precision are read from the loaded CTranslate2 model. CPU normally uses int8. See [Faster Whisper's runtime requirements](https://github.com/SYSTRAN/faster-whisper#gpu).
+Verified existing environment:
 
-On Windows, before importing Faster Whisper/CTranslate2 on the first request, the application locates NVIDIA DLLs under the current interpreter's environment (`.cenv/` for the documented launch command):
+- Python 3.12.15; PySide6 / Qt 6.12.0.
+- Qwen-TTS 0.1.1; PyTorch 2.11.0+cu130; Transformers 4.57.3; Accelerate 1.12.0.
+- SoundFile 0.14.0 / libsndfile 1.2.2; NumPy 2.5.3.
+- Faster Whisper 1.2.1; CTranslate2 4.8.2; PyAV 18.1.0.
+- NVIDIA GeForce RTX 4070; existing transcription cuBLAS 12.9.2.10 and cuDNN 9.27.0.42.
+
+No packages, CUDA configuration, or model files were installed or changed. The installed Qwen package prints a missing-SoX diagnostic during import; the verified preparation/generation paths succeed without SoX. Audio post-processing remains unimplemented.
+
+For a separate new environment, create Python with `conda create --prefix .\.cenv python=3.12 -y`. [requirements-desktop.txt](requirements-desktop.txt) and [requirements-transcription.txt](requirements-transcription.txt) record the existing UI/decoding and transcription versions. They do not install the synthesis stack or models. Recreating the complete environment is untested; a complete synthesis dependency manifest and binary packaging audit remain pending. CUDA PyTorch builds must match the target machine. Official sources: [Qwen3-TTS](https://github.com/QwenLM/Qwen3-TTS), [Base model](https://huggingface.co/Qwen/Qwen3-TTS-12Hz-1.7B-Base), [Faster Whisper](https://github.com/SYSTRAN/faster-whisper), [Small model](https://huggingface.co/Systran/faster-whisper-small).
+
+## Architecture and Data
 
 ```text
-.cenv/Lib/site-packages/nvidia/cublas/bin/
-.cenv/Lib/site-packages/nvidia/cudnn/bin/
-.cenv/Lib/site-packages/nvidia/cuda_nvrtc/bin/  # Optional installed runtime compiler
+qwen3_tts_studio/
+  __main__.py, app.py     # Entry point and application composition
+  application/           # Session validation, profile format/I/O, background controllers
+  audio/                 # File validation, immutable generated PCM, RAM WAV/waveform preparation
+  integrations/          # Lazy offline Faster Whisper and Qwen model adapters
+  ui/                    # Window, shared player/waveform/progress, dialogs, themes, original icon
+tests/                   # Focused checks; normal suite does not run model inference
+models/, samples/, output/  # Preserved data directories with tracked .gitkeep files
 ```
 
-The application registers existing directories with `os.add_dll_directory()` and retains the handles for its process lifetime. The process's Windows default DLL search enables these directories for native library loads as well. It loads the NVIDIA cuBLAS/cuDNN cores by absolute path before CTranslate2 so cuDNN can use matching companion DLLs. This addresses the earlier `cublas64_12.dll` lookup failure. Neither process/system PATH, the CUDA installation, nor PyTorch configuration is modified; PyTorch is not imported by this integration. No packages or DLLs were installed, copied, or changed.
-
-The actual application's Transcribe reference workflow was verified on the NVIDIA GeForce RTX 4070 with **CUDA float16**, using the existing cuBLAS `12.9.2.10`, cuDNN `9.27.0.42`, and NVRTC `12.9.86` packages. Other GPU/runtime combinations are not verified. Missing or incompatible GPU libraries retain the CPU fallback and report the error in logs and the completed status tooltip.
-
-## How to Run
-
-From the repository root in the VS Code PowerShell terminal, use the **verified startup command**:
-
-```powershell
-& .\.cenv\python.exe -m qwen3_tts_studio
-```
-
-This selects the existing project-local environment without requiring activation. After `conda activate .\.cenv`, the equivalent command is `python -m qwen3_tts_studio`.
-
-No model setup is required to launch the UI, play a reference, or enter text manually. Automatic transcription requires the local Small model and transcription dependencies described above. Missing `PySide6` errors mean the selected Python environment lacks the desktop dependency. Commands for the removed experimental scripts, such as `python generate_quest.py`, are no longer valid.
+Keep reference recordings in `samples/` and models in `models/`. `output/` is the default Save dialog location for explicit WAV exports; generation does not write into it. Existing files and all three directories remain untouched. These directories' contents and exported `.pt` profiles are ignored by Git. Never commit environments, model weights, recordings, generated audio, caches, or secrets. Export and profile operations never silently overwrite files. No original recording or exported audio is automatically deleted.
 
 ## Focused Verification
-
-Run from the repository root with a Windows desktop session:
 
 ```powershell
 & .\.cenv\python.exe -m unittest discover -s tests -v
 ```
 
-The nineteen checks cover startup/window exposure, Exit/event-loop shutdown, resizing and Output visibility, splitter limits and dragging, WAV/OGG import, invalid files, draft protection, muted Qt playback, the Play/Pause toggle, Space handling, seeking/scrubbing, completion/replay, and seeking after completion. Rendering checks verify played/unplayed colors and highlighting in both themes, forward animation, synchronization, partial repainting, cache reuse, and stopped animation when paused. Workspace checks exercise Clear Reference and New Voice confirmation/cancellation, reset during playback/loading, and successful imports after reset. Transcription checks cover ICL/X-Vector switching, manual draft preservation, overwrite confirmation/cancellation, lazy model reuse, offline model validation, retained process-local DLL handles, float16 preference, CPU fallback/error logs, future Qwen prompt validation, errors/empty results, UI heartbeat, stale results after edits/mode/reference/reset changes, and shutdown during active work. These use a delayed model stand-in and temporary recordings/settings; the regular suite does not load AI models or download data. File Explorer-style drops use local-file Qt drag/drop events. Settings and About are exercised; the output-folder action uses a mocked OS launcher.
+The 26 checks cover startup/shutdown, six-section minimum-size resizing and both left splitter handles, light/dark theme notifications, WAV/OGG decoding and drops, smooth shared waveform playback/seeking/scrubbing, Clear Reference/New Voice confirmation/cancellation, transcription modes/edit protection and fallback, reusable profile state, repeated RAM-only generation orchestration, profile import validation/cancellation/replacement, imported-input locking, stale-result protection, progress through output acceptance and failure, exact PCM export, overwrite confirmation/canceled dialogs, Stop during blocked work and output preflight, prevention of overlapping jobs, UI heartbeat, and background cleanup. Delayed adapters stand in for model calls. A separate subprocess checks real tensor-only profile serialization and rejects incompatible/nonfinite/arbitrary-object files. Regular checks do not perform inference or download assets.
 
-Separately, the actual application entry point and Transcribe reference button transcribed a 9.35-second temporary English speech fixture in WAV and OGG Vorbis on the RTX 4070. CTranslate2's loaded model reported `device=cuda` and `compute_type=float16` for both completed requests, not merely GPU availability. The model was reused; UI timers continued; PATH remained unchanged and PyTorch was not imported. Both returned the expected sentence and automatically detected English. An earlier CPU fallback check also covered model retention after New Voice and background unloading on exit. Inference checks are intentionally outside the normal test suite. Other languages and GPU configurations have not been tested.
+For this in-memory change, the actual desktop entry point used an existing ICL profile on the **RTX 4070 with CUDA/bfloat16/SDPA**: two successful generations replaced RAM recordings using the same loaded model; actual Qt RAM playback passed Play/Pause, seeking, scrubbing, completion, and replay. Three further native inference calls were canceled through Stop, New Voice, and shutdown. Stop kept the prior Output/profile/model; New Voice rejected stale audio; shutdown retained GPU resources until the call returned, then released the model. UI timers continued throughout. Explicit export retained the exact float32 samples/sample rate and overwrite Yes/No worked. A write audit detected no automatic WAV/OGG creation, and hashes/names of existing `output/` files stayed unchanged. Loaded-waveform light/dark layouts were reviewed at 900 × 870.
 
-Light/dark mode appearance and the minimum-size layout were visually reviewed locally. Automated theme checks exercise Qt's notification path without changing Windows personalization settings; a real Windows Settings toggle during execution remains a manual check. Audible speaker output, physical Explorer dragging, multi-monitor DPI changes, other codec variants, other machines, TTS inference, and packaged builds are outside this verification.
+Earlier GPU verification prepared and imported both ICL and X-Vector profiles, generated in both modes without original reference inputs after import, and transcribed through Faster Whisper CUDA float16 before/after Qwen usage. Those model/transcription paths were preserved; X-Vector inference and Faster Whisper were not rerun for this storage/cancellation change.
 
-## Project Data
+Automatic checks simulate local-file Explorer drops and Qt appearance notifications. Audible speaker output, physical Explorer dragging, a real Windows personalization change, long-form synthesis, voice quality across speakers/languages, CPU synthesis, other machines/GPUs, and packaged builds remain manual or unverified. The application is left running for manual testing.
 
-- `samples/`: place your own WAV/OGG reference files here. Their contents are ignored by Git.
-- `output/`: future generated WAV files and related results go here. Their contents are ignored by Git.
-- `models/`: local model weights and caches go here. Their contents are ignored by Git.
+## Privacy and License
 
-Each folder contains a `.gitkeep` placeholder so the empty directory structure exists in a fresh clone.
+Recordings, transcripts, profiles, and generated speech are processed locally once dependencies/models are available. Only clone or distribute voices you have permission to use. Tool/model licenses do not grant rights to performances or speaker identities.
 
-Do not put personal recordings, generated audio, or large model files in commits.
-
-## Privacy and Responsible Use
-
-The intended application processes voice recordings locally. Downloading dependencies and models requires an internet connection; ordinary transcription and synthesis should work offline once those assets are present.
-
-Only clone or distribute voices and recordings you have permission to use. Third-party game audio, voice performances, trademarks, and other assets may be protected independently of the model or application license.
-
-## License
-
-The original Qwen3 TTS Studio application source is licensed under the **MIT License**, Copyright (c) 2026 **Nendis**. See [LICENSE](LICENSE).
-
-Qwen3-TTS code and the initial 1.7B Base weights are licensed under **Apache License 2.0**. Faster Whisper and the initial Faster Whisper Small model are licensed under **MIT**. Those components retain their own licenses; the project's MIT license does not relicense them.
-
-See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for source references and packaging obligations. A full inventory of redistributed runtime dependencies must be prepared before binary release.
+Original application source: **MIT License**, Copyright (c) 2026 **Nendis**; see [LICENSE](LICENSE). Qwen3-TTS code and Base weights retain **Apache-2.0**; Faster Whisper/Small retain **MIT**. Their licenses are not replaced by the application's MIT license. [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) was reviewed; no dependencies were installed or changed. A complete inventory of exact redistributed runtime dependencies is required before binary release.

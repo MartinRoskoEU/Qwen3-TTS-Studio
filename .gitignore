@@ -19,6 +19,9 @@
 /output/*
 !/output/.gitkeep
 
+# Exported voice profiles contain user voice data
+*.pt
+
 # Python bytecode and packaging artifacts
 __pycache__/
 *.py[cod]

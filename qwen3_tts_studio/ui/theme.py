@@ -46,6 +46,12 @@ def stylesheet(colors: Colors) -> str:
         QFrame[dropTarget="true"][dragActive="true"] {{ border-color: {colors.accent}; }}
         QLabel {{ color: {colors.text}; background: transparent; }}
         QLabel[role="muted"] {{ color: {colors.muted}; }}
+        QLabel[error="true"] {{ color: {"#f28b82" if colors == DARK else "#b42318"}; }}
+        QProgressBar {{
+            border: 1px solid {colors.border}; border-radius: 1px;
+            background: {colors.editor};
+        }}
+        QProgressBar::chunk {{ background: {colors.accent}; border-radius: 0px; }}
         QLabel[role="title"] {{ font-size: 20px; font-weight: 600; }}
         QLabel[role="sectionTitle"] {{ font-size: 15px; font-weight: 600; }}
         QLabel[role="badge"] {{

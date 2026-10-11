@@ -51,3 +51,4 @@ def main() -> int:
         window.release_resources()
         window.reference_loader.wait_for_shutdown()
         window.transcription.wait_for_shutdown()
+        window.voice.wait_for_shutdown()

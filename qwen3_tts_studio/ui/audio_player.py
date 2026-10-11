@@ -2,7 +2,7 @@
 
 # Copyright (c) 2026 Nendis. SPDX-License-Identifier: MIT
 
-from PySide6.QtCore import QAbstractAnimation, QElapsedTimer, QTimer, QUrl, Qt, Signal, Slot
+from PySide6.QtCore import QAbstractAnimation, QBuffer, QByteArray, QElapsedTimer, QIODevice, QTimer, QUrl, Qt, Signal, Slot
 from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget
 
@@ -117,7 +117,16 @@ class AudioPlayer(QWidget):
         candidate.mediaStatusChanged.connect(self._candidate_status, Qt.ConnectionType.QueuedConnection)
         candidate.errorOccurred.connect(self._candidate_error, Qt.ConnectionType.QueuedConnection)
         self._load_timeout.start(15000)
-        candidate.setSource(QUrl.fromLocalFile(str(recording.path)))
+        if hasattr(recording, "wav_data"):
+            # Parent ownership and the Python reference keep the seekable device
+            # alive through preflight, playback, and deferred player destruction.
+            buffer = QBuffer(candidate)
+            buffer.setData(QByteArray(recording.wav_data))
+            buffer.open(QIODevice.OpenModeFlag.ReadOnly)
+            candidate._playback_buffer = buffer
+            candidate.setSourceDevice(buffer, QUrl("memory:/generated.wav"))
+        else:
+            candidate.setSource(QUrl.fromLocalFile(str(recording.path)))
 
     @Slot(QMediaPlayer.Error, str)
     def _candidate_error(self, error, message: str) -> None:
