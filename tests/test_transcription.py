@@ -181,7 +181,8 @@ class TranscriptionChecks(unittest.TestCase):
         self.adapter.gate.set()
         self.window.transcript_editor.clear()
         self.window.speech_editor.clear()
-        self.window.close()
+        with patch.object(QMessageBox, "question", return_value=QMessageBox.StandardButton.Discard):
+            self.window.close()
         self.wait_until(lambda: not self.window.isVisible())
         self.window.deleteLater()
         self.app.processEvents()
@@ -294,7 +295,8 @@ class TranscriptionChecks(unittest.TestCase):
         self.adapter.error = None
         w.transcript_editor.clear()
         self.begin_delayed()
-        self.assertFalse(w.close())
+        with patch.object(QMessageBox, "question", return_value=QMessageBox.StandardButton.Discard):
+            self.assertFalse(w.close())
         self.assertTrue(w.isVisible())
         self.assertFalse(w.centralWidget().isEnabled())
         self.finish_delayed()

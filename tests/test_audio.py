@@ -206,7 +206,8 @@ class AudioChecks(unittest.TestCase):
             self.assertFalse(window.output_player.waveform.seekable)
         finally:
             window.transcript_editor.clear()
-            window.close()
+            with patch.object(QMessageBox, "question", return_value=QMessageBox.StandardButton.Discard):
+                window.close()
             self.wait_until(lambda: not window.reference_loader.has_workers and not window.isVisible())
 
     def test_obsolete_completion_and_close_during_preparation(self):
@@ -248,7 +249,8 @@ class AudioChecks(unittest.TestCase):
             with patch("qwen3_tts_studio.application.audio_loader.prepare_waveform", controlled_decode):
                 window.select_reference(self.wav)
                 self.wait_until(started.is_set)
-                window.close()
+                with patch.object(QMessageBox, "question", return_value=QMessageBox.StandardButton.Discard):
+                    window.close()
                 self.assertTrue(window.reference_loader.has_workers)
                 self.assertTrue(window.isVisible())
                 QTest.qWait(40)  # The UI event loop remains responsive while closing.
@@ -260,7 +262,8 @@ class AudioChecks(unittest.TestCase):
             finish.set()
             window.release_resources()
             self.wait_until(lambda: not window.reference_loader.has_workers)
-            window.close()
+            with patch.object(QMessageBox, "question", return_value=QMessageBox.StandardButton.Discard):
+                window.close()
 
     def test_cached_rendering_and_continuous_animation(self):
         window = self.make_window()
@@ -312,7 +315,8 @@ class AudioChecks(unittest.TestCase):
                 self.assertEqual(view.position_ms, paused)
             view.removeEventFilter(observer)
         finally:
-            window.close()
+            with patch.object(QMessageBox, "question", return_value=QMessageBox.StandardButton.Discard):
+                window.close()
             self.wait_until(lambda: not window.isVisible() and not window.reference_loader.has_workers)
 
     def test_clear_new_voice_confirmation_space_and_reuse(self):
@@ -399,7 +403,8 @@ class AudioChecks(unittest.TestCase):
         finally:
             window.transcript_editor.clear()
             window.speech_editor.clear()
-            window.close()
+            with patch.object(QMessageBox, "question", return_value=QMessageBox.StandardButton.Discard):
+                window.close()
             self.wait_until(lambda: not window.isVisible() and not window.reference_loader.has_workers)
 
     def test_reset_during_worker_loading_and_qt_preflight(self):
@@ -421,11 +426,9 @@ class AudioChecks(unittest.TestCase):
                     window.select_reference(self.wav)
                     self.wait_until(started.is_set)
                     self.assertTrue(window.clear_reference_button.isEnabled())
+                    # Pending imports have not changed the workspace yet.
                     if reset == window.new_voice:
-                        with patch.object(QMessageBox, "question", return_value=QMessageBox.StandardButton.Cancel):
-                            self.assertFalse(reset())
-                        self.assertTrue(window._importing)
-                        self.assertTrue(window.reference_loader.has_workers)
+                        self.assertFalse(window.has_unsaved_changes)
                     with patch.object(QMessageBox, "question", return_value=QMessageBox.StandardButton.Discard):
                         self.assertTrue(reset())
                     finish.set()
@@ -450,7 +453,8 @@ class AudioChecks(unittest.TestCase):
             self.assertEqual(window.session.reference, self.ogg.resolve())
         finally:
             finish.set()
-            window.close()
+            with patch.object(QMessageBox, "question", return_value=QMessageBox.StandardButton.Discard):
+                window.close()
             self.wait_until(lambda: not window.isVisible() and not window.reference_loader.has_workers)
 
 

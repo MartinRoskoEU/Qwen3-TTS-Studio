@@ -86,6 +86,14 @@ def stylesheet(colors: Colors) -> str:
             border-color: {colors.border};
         }}
         QComboBox {{ padding: 5px 8px; min-height: 20px; }}
+        QSpinBox, QDoubleSpinBox {{
+            color: {colors.text}; background: {colors.editor};
+            border: 1px solid {colors.border}; border-radius: 2px; padding: 3px;
+            selection-background-color: {colors.accent};
+            selection-color: {colors.selection_text};
+        }}
+        QToolButton {{ color: {colors.text}; background: transparent; padding: 3px; }}
+        QToolButton:hover {{ background: {colors.hover}; }}
         QMenuBar {{
             background: {colors.surface}; color: {colors.text};
             border-bottom: 1px solid {colors.border};

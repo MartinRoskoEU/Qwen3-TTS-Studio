@@ -37,6 +37,9 @@ class VoiceThread(QThread):
                 result = save_profile(*self.arguments, cancelled)
             elif self.operation == "export":
                 result = export_wav(*self.arguments, cancelled)
+            elif self.operation == "session":
+                from .sessions import load_session
+                result = load_session(self.arguments[0], self.adapter.models, self.arguments[1], cancelled, report)
             else:
                 raise ValueError(f"Unknown voice operation: {self.operation}")
             if not cancelled():

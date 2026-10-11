@@ -2,10 +2,11 @@
 
 # Copyright (c) 2026 Nendis. SPDX-License-Identifier: MIT
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
 from typing import TYPE_CHECKING
+from .generation_settings import GenerationSettings
 
 if TYPE_CHECKING:
     from .voice_profile import VoiceProfile
@@ -69,6 +70,8 @@ class WorkspaceSession:
     voice_revision: int = 0
     output: "MemoryRecording | None" = None
     profile_name: str = ""
+    profile_path: Path | None = None
+    generation_settings: GenerationSettings = field(default_factory=GenerationSettings)
 
     def __post_init__(self):
         if self.profile is not None:
@@ -104,6 +107,7 @@ class WorkspaceSession:
 
     def clear_profile(self) -> None:
         self.profile = None
+        self.profile_path = None
         self.profile_name = ""
         self.profile_status = ProfileStatus.NOT_PREPARED
         self.voice_revision += 1
@@ -112,6 +116,7 @@ class WorkspaceSession:
         if self.profile is not None or self.profile_status != ProfileStatus.NOT_PREPARED:
             self.profile_status = ProfileStatus.NEEDS_PREPARATION
         self.profile = None
+        self.profile_path = None
         self.profile_name = ""
         self.voice_revision += 1
 
@@ -126,6 +131,7 @@ class WorkspaceSession:
             raise ValueError("The prepared profile does not match the current reference inputs.")
         self.voice_revision += 1
         self.profile = profile
+        self.profile_path = profile.imported_from
         self.profile_name = (profile.imported_from or profile.source_reference).stem
         self.profile_status = ProfileStatus.READY
 
@@ -166,6 +172,7 @@ class WorkspaceSession:
         self.cloning_mode = CloningMode.ICL
         self.profile_status = ProfileStatus.NOT_PREPARED
         self.output = None
+        self.generation_settings = GenerationSettings()
 
     def select_reference(self, path: Path) -> None:
         self.require_reference_editable()

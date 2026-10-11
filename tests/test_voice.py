@@ -23,6 +23,7 @@ from PySide6.QtWidgets import QApplication, QFileDialog, QMessageBox
 from qwen3_tts_studio.app import create_window
 from qwen3_tts_studio.application.voice_profile import VoiceProfile
 from qwen3_tts_studio.application.workspace import CloningMode, ProfileStatus
+from qwen3_tts_studio.application.generation_settings import GenerationSettings
 from qwen3_tts_studio.audio.decoding import prepare_waveform
 from qwen3_tts_studio.audio.memory import prepare_memory_recording
 from qwen3_tts_studio.integrations.qwen_tts import GeneratedSpeech
@@ -35,6 +36,7 @@ class DelayedVoice:
         self.gpu_error = ""
         self.preparations = 0
         self.generations = []
+        self.generation_settings = []
         self.released_on = None
 
     def description(self):
@@ -48,10 +50,11 @@ class DelayedVoice:
         mode = CloningMode.X_VECTOR_ONLY if arguments["x_vector_only_mode"] else CloningMode.ICL
         return VoiceProfile(uuid4().hex, mode, {}, ({},), "fixture", Path(arguments["ref_audio"]))
 
-    def generate(self, profile, text, cancelled, report):
+    def generate(self, profile, text, settings, cancelled, report):
         report("Generating speech... · CPU · mock · SDPA")
         time.sleep(.12)
         self.generations.append((profile.identifier, text))
+        self.generation_settings.append(settings)
         recording = prepare_memory_recording(np.sin(np.arange(16000) * .1).astype(np.float32) * .05,
                                              16000, "speech.wav", {"text": text})
         return GeneratedSpeech(recording, profile.identifier, text, .12, "cpu", "mock", "sdpa")
@@ -159,6 +162,123 @@ class VoiceChecks(unittest.TestCase):
             self.assertTrue(w.clear_reference())
         self.assertIsNone(w.session.profile)
         self.assertEqual(w.session.speech_text, "Different words")
+
+    def test_settings_snapshots_reset_and_profile_reuse(self):
+        w = self.w
+        self.prepare()
+        profile = w.session.profile
+        panel = w.advanced_settings
+        self.assertFalse(panel.toggle.isChecked())
+        w.resize(900, 870)
+        panel.toggle.setChecked(True)
+        QTest.qWait(50)
+        self.assertEqual((w.width(), w.height()), (900, 870))
+        self.assertTrue(panel.panel.isVisible())
+        for control in (*panel.controls.values(), panel.language, panel.reset):
+            origin = control.mapTo(panel, QPoint(0, 0))
+            self.assertTrue(panel.rect().contains(origin + control.rect().bottomRight()))
+            self.assertGreaterEqual(control.height(), 28)
+        panel.controls["temperature"].setValue(1.2)
+        first = w.session.generation_settings
+        self.assertTrue(w.generate_speech())
+        panel.controls["temperature"].setValue(.6)
+        panel.controls["top_k"].setValue(20)
+        second = w.session.generation_settings
+        self.idle()
+        self.assertEqual(self.adapter.generation_settings, [first])
+        self.assertIs(w.session.profile, profile)
+        self.assertTrue(w.generate_speech())
+        self.idle()
+        self.assertEqual(self.adapter.generation_settings, [first, second])
+        self.assertEqual(self.adapter.preparations, 1)
+        self.assertEqual(list(self.root.glob("*.wav")), [self.reference])
+        panel.reset.click()
+        self.assertEqual(w.session.generation_settings, w.generation_defaults)
+        self.assertIs(w.session.profile, profile)
+        panel.controls["top_p"].setValue(.7)
+        w.clear_profile()
+        self.assertEqual(w.session.generation_settings.top_p, .7)
+        with patch.object(QMessageBox, "question", return_value=QMessageBox.StandardButton.Discard):
+            self.assertTrue(w.new_voice())
+        self.assertEqual(w.session.generation_settings, w.generation_defaults)
+        self.assertFalse(w.has_unsaved_changes)
+
+    def test_session_save_open_dirty_and_recovery(self):
+        w = self.w
+        w.speech_editor.setPlainText("Žltý kôň — 日本語 🎵")
+        w.advanced_settings.controls["temperature"].setValue(1.3)
+        destination = self.root / "session.qtts.json"
+        self.assertTrue(w.save_workspace_session(destination))
+        self.assertFalse(w.has_unsaved_changes)
+        w.speech_editor.insertPlainText(" edit")
+        self.assertTrue(w.has_unsaved_changes)
+        with patch.object(QMessageBox, "question", return_value=QMessageBox.StandardButton.Cancel):
+            self.assertFalse(w.open_workspace_session(destination))
+            self.assertFalse(w.new_voice())
+        with patch.object(QMessageBox, "question", return_value=QMessageBox.StandardButton.Discard):
+            self.assertTrue(w.open_workspace_session(destination))
+            self.wait(lambda: w._session_pending is None)
+            self.idle()
+        self.assertEqual(w.session.speech_text, "Žltý kôň — 日本語 🎵")
+        self.assertEqual(w.session.transcript, "Reference words")
+        self.assertEqual(w.session.reference, self.reference)
+        self.assertEqual(w.session.generation_settings.temperature, 1.3)
+        self.assertFalse(w.has_unsaved_changes)
+        with patch.object(QMessageBox, "warning") as warning:
+            bad = self.root / "bad.json"
+            bad.write_text("not json", encoding="utf-8")
+            self.assertTrue(w.open_workspace_session(bad))
+            self.wait(lambda: w._session_pending is None)
+            self.idle()
+            warning.assert_called_once()
+        self.assertEqual(w.session_path, destination)
+        self.assertEqual(w.session.speech_text, "Žltý kôň — 日本語 🎵")
+        self.prepare()
+        self.assertTrue(w.generate_speech())
+        with patch.object(QMessageBox, "question", return_value=QMessageBox.StandardButton.Discard):
+            self.assertTrue(w.open_workspace_session(destination))
+            self.wait(lambda: w._session_pending is None)
+            self.idle()
+        self.assertIsNone(w.session.output)
+        self.assertIsNone(w.session.profile)
+        self.assertEqual(w.session.speech_text, "Žltý kôň — 日本語 🎵")
+
+    def test_exit_save_discard_cancel_failure_and_unchanged(self):
+        w = self.w
+        with patch.object(QMessageBox, "question", return_value=QMessageBox.StandardButton.Cancel):
+            self.assertFalse(w.close())
+        with patch.object(QMessageBox, "question", return_value=QMessageBox.StandardButton.Save), \
+             patch.object(QFileDialog, "getSaveFileName", return_value=("", "")):
+            self.assertFalse(w.close())
+            self.assertFalse(w.new_voice())
+        destination = self.root / "session.qtts.json"
+        with patch.object(QMessageBox, "question", return_value=QMessageBox.StandardButton.Save), \
+             patch.object(QFileDialog, "getSaveFileName", return_value=(str(destination), "")):
+            self.assertTrue(w.new_voice())
+        self.assertTrue(destination.is_file())
+        self.assertFalse(w.has_unsaved_changes)
+        w.speech_editor.setPlainText("New draft")
+        with patch.object(QMessageBox, "question", return_value=QMessageBox.StandardButton.Save), \
+             patch("qwen3_tts_studio.ui.main_window.save_session", side_effect=OSError("Disk failure")), \
+             patch.object(QFileDialog, "getSaveFileName", return_value=(str(destination), "")), \
+             patch.object(QMessageBox, "warning"):
+            self.assertFalse(w.close())
+            self.assertFalse(w._closing)
+        self.assertTrue(w.save_workspace_session(destination))
+        with patch.object(QMessageBox, "question") as question:
+            self.assertTrue(w.close())
+            question.assert_not_called()
+
+    def test_exit_save_commits_latest_draft(self):
+        import json
+        w = self.w
+        destination = self.root / "session.qtts.json"
+        with patch.object(QMessageBox, "question", return_value=QMessageBox.StandardButton.Save), \
+             patch.object(QFileDialog, "getSaveFileName", return_value=(str(destination), "")):
+            self.assertTrue(w.close())
+        saved = json.loads(destination.read_text(encoding="utf-8"))
+        self.assertEqual(saved["speech_text"], "First text")
+        self.assertEqual(saved["reference_transcription"], "Reference words")
 
     def test_profile_import_validation_and_confirmation_preserve_state(self):
         w = self.w

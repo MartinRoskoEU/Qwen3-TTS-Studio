@@ -9,7 +9,7 @@ from PySide6.QtGui import QAction, QCloseEvent, QKeySequence
 from PySide6.QtMultimedia import QMediaPlayer
 from PySide6.QtWidgets import (
     QAbstractSpinBox, QApplication, QComboBox, QDialog, QFileDialog, QFrame,
-    QHBoxLayout, QLabel, QLineEdit, QMainWindow,
+    QHBoxLayout, QLabel, QLineEdit, QMainWindow, QLayout,
     QMessageBox, QPlainTextEdit, QPushButton, QTextEdit,
     QSizePolicy, QSplitter, QVBoxLayout, QWidget,
 )
@@ -19,6 +19,9 @@ from ..application.audio_loader import AudioLoader
 from ..application.transcription import TranscriptionController
 from ..application.workspace import CloningMode, ProfileStatus, WorkspacePaths, WorkspaceSession
 from ..application.voice_jobs import VoiceController
+from ..application.generation_settings import local_generation_defaults
+from ..application.sessions import save_session, workspace_snapshot
+from .advanced_settings import AdvancedSettings
 from .audio_player import AudioPlayer, format_time
 from .dialogs import SettingsDialog
 from .theme import ThemeController
@@ -104,6 +107,12 @@ class MainWindow(QMainWindow):
         self.paths = paths
         self.theme = theme
         self.session = WorkspaceSession()
+        self.generation_defaults, self.generation_languages = local_generation_defaults(paths.models)
+        self.session.generation_settings = self.generation_defaults
+        self.session_path = None
+        self._saved_snapshot = workspace_snapshot(self.session)
+        self._session_pending = None
+        self._session_reference_pending = False
         self._closing = False
         self._importing = False
         self._transcription_context = None
@@ -160,6 +169,18 @@ class MainWindow(QMainWindow):
         self.new_voice_action.setShortcut(QKeySequence.StandardKey.New)
         self.new_voice_action.triggered.connect(self.new_voice)
         app_menu.addAction(self.new_voice_action)
+        self.open_session_action = QAction("&Open Session…", self)
+        self.open_session_action.setShortcut(QKeySequence("Ctrl+Shift+O"))
+        self.open_session_action.triggered.connect(self.choose_open_session)
+        app_menu.addAction(self.open_session_action)
+        self.save_session_action = QAction("&Save Session", self)
+        self.save_session_action.setShortcut(QKeySequence.StandardKey.Save)
+        self.save_session_action.triggered.connect(self.save_workspace_session)
+        app_menu.addAction(self.save_session_action)
+        self.save_session_as_action = QAction("Save Session &As…", self)
+        self.save_session_as_action.setShortcut(QKeySequence.StandardKey.SaveAs)
+        self.save_session_as_action.triggered.connect(self.choose_save_session)
+        app_menu.addAction(self.save_session_as_action)
         app_menu.addSeparator()
         settings = QAction("&Settings…", self)
         settings.setShortcut(QKeySequence("Ctrl+,"))
@@ -346,7 +367,9 @@ class MainWindow(QMainWindow):
         self.speech_editor.textChanged.connect(self._speech_changed)
         section.body.addWidget(self.speech_editor, 1)
         row = QHBoxLayout()
-        row.addWidget(label("Session draft · not saved", "muted"))
+        self.session_status = label("New session", "muted")
+        self.session_status.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        row.addWidget(self.session_status, 1)
         row.addStretch()
         self.character_count = label("0 characters", "muted")
         row.addWidget(self.character_count)
@@ -354,13 +377,18 @@ class MainWindow(QMainWindow):
         return section
 
     def _generation_section(self) -> Section:
-        section = Section("Generation", "Generate a new recording using the prepared voice and current Speech Text.")
-        section.setMinimumHeight(180)
+        section = Section("Generation", "Generate variants using the prepared voice.")
+        section.body.setContentsMargins(16, 8, 16, 8)
+        section.body.setSpacing(6)
+        section.body.setSizeConstraint(QLayout.SizeConstraint.SetMinimumSize)
         self.model_status = label("Qwen3-TTS Base · loaded on first use", "muted", True)
         section.body.addWidget(self.model_status)
         self.generation_progress = OperationProgress("Prepare or load a voice profile to begin.")
         self.generation_status = self.generation_progress.stage
         section.body.addWidget(self.generation_progress)
+        self.advanced_settings = AdvancedSettings(self.generation_defaults, self.generation_languages)
+        self.advanced_settings.changed.connect(self._generation_settings_changed)
+        section.body.addWidget(self.advanced_settings)
         section.body.addStretch(1)
         row = QHBoxLayout()
         row.addStretch()
@@ -535,6 +563,7 @@ class MainWindow(QMainWindow):
         """Queue an import; success is committed only after decoding and Qt load."""
         if self._closing or self.session.reference_locked:
             return False
+        self._session_reference_pending = False
         try:
             path = Path(path)
             if path.suffix.lower() not in {".wav", ".ogg"}:
@@ -576,6 +605,10 @@ class MainWindow(QMainWindow):
         self._update_reference_actions()
 
     def _reference_loaded(self, recording) -> None:
+        if self._session_reference_pending and not self._closing:
+            self._session_reference_pending = False
+            self.reference_status.setText("Session reference restored · Click or drag on the waveform to seek")
+            return
         if self._closing or not self._importing:
             return
         changed = recording.path != self.session.reference
@@ -634,18 +667,25 @@ class MainWindow(QMainWindow):
         return True
 
     def new_voice(self) -> bool:
-        if self._closing:
+        if self._closing or self._session_pending is not None:
             return False
-        if self.session.has_content or self._importing or self.output_player.has_content or self.voice.busy:
-            answer = QMessageBox.question(
-                self, "New Voice?", "Start a new voice and discard the current reference, text drafts, voice profile, and output preview? Saved files are kept.",
-                QMessageBox.StandardButton.Discard | QMessageBox.StandardButton.Cancel,
-                QMessageBox.StandardButton.Cancel,
-            )
-            if answer != QMessageBox.StandardButton.Discard:
-                return False
+        if not self._protect_unsaved_changes("starting a new voice"):
+            return False
+        self._clear_workspace()
+        self.session_path = None
+        self._saved_snapshot = workspace_snapshot(self.session)
+        self._update_session_status()
+        self.statusBar().showMessage("New voice ready. Audio files and application preferences were kept.")
+        self.choose_reference_button.setFocus()
+        return True
+
+    def _clear_workspace(self):
+        self._session_reference_pending = False
+        self.session.clear_profile()
         self._reset_reference()
         self.session.new_voice()
+        self.session.generation_settings = self.generation_defaults
+        self.advanced_settings.set_settings(self.generation_defaults)
         self.cloning_mode.setCurrentIndex(self.cloning_mode.findData(CloningMode.ICL))
         self._update_transcription_controls()
         self.speech_editor.clear()
@@ -656,13 +696,148 @@ class MainWindow(QMainWindow):
         self.generation_progress.reset()
         self.export_button.setEnabled(False)
         self._update_voice_actions()
-        self.statusBar().showMessage("New voice ready. Audio files and application preferences were kept.")
-        self.choose_reference_button.setFocus()
+
+    def _generation_settings_changed(self, settings):
+        self.session.generation_settings = settings
+        self._update_session_status()
+
+    @property
+    def has_unsaved_changes(self):
+        return workspace_snapshot(self.session) != self._saved_snapshot
+
+    def _update_session_status(self):
+        if not hasattr(self, "session_status"):
+            return
+        dirty = self.has_unsaved_changes
+        name = self.session_path.name if self.session_path else "New session"
+        memory_voice = self.session.profile is not None and self.session.profile_path is None
+        state = 'Unsaved changes' if dirty else 'Saved' if self.session_path else 'Unchanged'
+        self.session_status.setText(f"{name} · {state}" + (" · Profile in RAM" if memory_voice else ""))
+        recovery = "\nThe voice profile is only in memory. Save Profile separately or prepare/load it again after reopening." if memory_voice else ""
+        self.session_status.setToolTip(str(self.session_path or "Save Session stores drafts, settings and file references; profiles and audio are separate.") + recovery)
+        self.setWindowTitle(f"{'* ' if dirty else ''}{name} — Qwen3 TTS Studio")
+
+    def _protect_unsaved_changes(self, operation):
+        if not self.has_unsaved_changes:
+            return True
+        answer = QMessageBox.question(
+            self, "Unsaved workspace changes", f"Save the current session before {operation}?\n\nSessions store drafts, settings and file references. In-memory voice profiles and generated audio are not saved.",
+            QMessageBox.StandardButton.Save | QMessageBox.StandardButton.Discard | QMessageBox.StandardButton.Cancel,
+            QMessageBox.StandardButton.Cancel,
+        )
+        if answer == QMessageBox.StandardButton.Save:
+            return self.save_workspace_session()
+        return answer == QMessageBox.StandardButton.Discard
+
+    def choose_save_session(self):
+        if self._closing:
+            return False
+        filename, _ = QFileDialog.getSaveFileName(self, "Save Session As",
+            str(self.session_path or self.paths.root / "workspace.qtts.json"), "Studio session (*.json)")
+        if not filename:
+            return False
+        path = Path(filename)
+        if not path.suffix:
+            path = path.with_suffix(".json")
+        return self.save_workspace_session(path)
+
+    def save_workspace_session(self, path=None):
+        if self._closing:
+            return False
+        if isinstance(path, bool):  # QAction's checked argument is not a filename.
+            path = None
+        if path is None and self.session_path is None:
+            return self.choose_save_session()
+        try:
+            self.session.generation_settings.validate(self.generation_languages)
+            saved_path = save_session(self.session, Path(path or self.session_path))
+        except (OSError, ValueError) as error:
+            QMessageBox.warning(self, "Cannot save session", f"{error}\n\nChoose a writable JSON destination and try again.")
+            return False
+        self.session_path = saved_path
+        self._saved_snapshot = workspace_snapshot(self.session)
+        self._update_session_status()
+        message = f"Session saved: {self.session_path}"
+        if self.session.profile is not None and self.session.profile_path is None:
+            message += " · In-memory profile was not saved; prepare or load it again after reopening."
+        self.statusBar().showMessage(message)
         return True
+
+    def choose_open_session(self):
+        if self._closing or self._session_pending is not None:
+            return
+        filename, _ = QFileDialog.getOpenFileName(self, "Open Session", str(self.paths.root), "Studio session (*.json)")
+        if filename:
+            self.open_workspace_session(Path(filename))
+
+    def open_workspace_session(self, path):
+        if self._closing or self._session_pending is not None or not self._protect_unsaved_changes("opening another session"):
+            return False
+        self._cancel_transcription("Opening session")
+        self._cancel_voice_work()
+        self.reference_loader.cancel()
+        self.reference_player.cancel_pending()
+        self._finish_import()
+        self._session_pending = Path(path)
+        self.centralWidget().setEnabled(False)
+        for action in (self.new_voice_action, self.open_session_action, self.save_session_action, self.save_session_as_action):
+            action.setEnabled(False)
+        self.statusBar().showMessage("Opening session · waiting for previous background work…")
+        self._begin_session_load()
+        return True
+
+    def _begin_session_load(self):
+        if self._closing or self._session_pending is None:
+            return
+        if self.voice.busy or self.transcription.busy or self.reference_loader.has_workers:
+            QTimer.singleShot(50, self._begin_session_load)
+            return
+        self._start_voice_job("session", self._session_pending, self.generation_languages)
+
+    def _finish_session_load(self):
+        self._session_pending = None
+        self.centralWidget().setEnabled(True)
+        for action in (self.new_voice_action, self.open_session_action, self.save_session_action, self.save_session_as_action):
+            action.setEnabled(True)
+
+    def _restore_session(self, restored):
+        self._clear_workspace()
+        self.session = restored.workspace
+        self.session_path = restored.path
+        with QSignalBlocker(self.speech_editor), QSignalBlocker(self.transcript_editor), QSignalBlocker(self.cloning_mode):
+            self.speech_editor.setPlainText(self.session.speech_text)
+            self.transcript_editor.setPlainText(self.session.transcript)
+            self.cloning_mode.setCurrentIndex(self.cloning_mode.findData(self.session.cloning_mode))
+        self._speech_changed()
+        self.advanced_settings.set_settings(self.session.generation_settings)
+        if restored.reference_recording is not None:
+            reference = self.session.reference
+            self.reference_path.setText(reference.name)
+            self.reference_path.setToolTip(str(reference))
+            # State is already restored; playback must not clear its transcript.
+            self._session_reference_pending = True
+            self.reference_player.load_recording(restored.reference_recording)
+            self.reference_status.setText("Session reference restored")
+        if self.session.reference_locked:
+            self.reference_status.setText("Imported profile · reference inputs locked")
+        elif self.session.reference is not None and restored.reference_recording is None:
+            self.reference_path.setText(self.session.reference.name)
+            self.reference_path.setToolTip(str(self.session.reference))
+            self.reference_status.setText("Reference unavailable · Saved voice restored")
+        if self.session.profile_status == ProfileStatus.NEEDS_PREPARATION:
+            self.preparation_progress.reset("Prepare or load the voice again.")
+        self._saved_snapshot = workspace_snapshot(self.session)
+        self._finish_session_load()
+        self._update_reference_actions()
+        self._update_session_status()
+        self.statusBar().showMessage(f"Session opened: {restored.path.name}")
+        if restored.notices:
+            QMessageBox.warning(self, "Session restoration notice", "\n\n".join(restored.notices))
 
     def _update_voice_actions(self) -> None:
         if not hasattr(self, "generate_button"):
             return
+        self._update_session_status()
         idle = not self._closing and not self.voice.busy and not self._importing and self._output_context is None
         available = self.session.profile is not None and self.session.profile_status == ProfileStatus.READY
         can_prepare = self.session.can_prepare
@@ -685,7 +860,9 @@ class MainWindow(QMainWindow):
         profile = self.session.profile
         if profile is not None:
             origin = str(profile.imported_from or profile.source_reference or "In-memory profile")
-            self.profile_status.setToolTip(f"{profile.mode.value} · {origin}\nProfiles are saved separately from text drafts.")
+            recovery = ("Save Profile separately to restore this in-memory voice from a session."
+                        if self.session.profile_path is None else f"Session profile file: {self.session.profile_path}")
+            self.profile_status.setToolTip(f"{profile.mode.value} · {origin}\n{recovery}")
         else:
             self.profile_status.setToolTip("Changes to reference audio, transcription, or mode require preparation. Speech Text can change freely.")
 
@@ -742,7 +919,7 @@ class MainWindow(QMainWindow):
             self._output_context = None
             self.output_player.cancel_pending()
         self._voice_phase = {"prepare": "Preparing voice", "generate": "Generating speech",
-                             "save": "Saving profile", "load": "Loading profile", "export": "Exporting WAV"}[operation]
+                             "save": "Saving profile", "load": "Loading profile", "export": "Exporting WAV", "session": "Opening session"}[operation]
         self._voice_elapsed.start()
         self._voice_device = ("CPU · file I/O" if operation in {"load", "save", "export"}
                               else self.voice.model_description if self.voice.model_loaded else "")
@@ -769,7 +946,12 @@ class MainWindow(QMainWindow):
     def generate_speech(self) -> bool:
         if not self.session.can_generate or self._output_context is not None:
             return False
-        return self._start_voice_job("generate", self.session.profile, self.session.speech_text)
+        try:
+            settings = self.session.generation_settings.validate(self.generation_languages)
+        except ValueError as error:
+            QMessageBox.warning(self, "Cannot generate speech", str(error))
+            return False
+        return self._start_voice_job("generate", self.session.profile, self.session.speech_text, settings)
 
     def stop_generation(self) -> bool:
         if self._closing or self._generation_stopping:
@@ -893,6 +1075,9 @@ class MainWindow(QMainWindow):
             return
         self._voice_context = None
         self._voice_timer.stop()
+        if operation == "session":
+            self._restore_session(result)
+            return
         elapsed = self._voice_elapsed.elapsed() / 1000
         if self.voice.model_loaded:
             self.model_status.setText(f"Qwen3-TTS Base · {self.voice.model_description}")
@@ -928,6 +1113,7 @@ class MainWindow(QMainWindow):
         else:
             if operation == "save":
                 self.session.profile_name = result.stem
+                self.session.profile_path = result
             if operation == "export":
                 self.output_status.setText(f"In memory · Exported: {result.name}")
                 self.output_status.setToolTip(str(result))
@@ -942,6 +1128,8 @@ class MainWindow(QMainWindow):
         if self._closing or self._voice_context is None:
             return
         operation = self._voice_context[1]
+        if operation == "session":
+            self._finish_session_load()
         self._voice_context = None
         self._voice_timer.stop()
         if operation == "prepare":
@@ -1014,6 +1202,11 @@ class MainWindow(QMainWindow):
         return self.reference_player if self.reference_player.has_content else self.output_player
 
     def _reference_failed(self, message: str) -> None:
+        if self._session_reference_pending and not self._closing:
+            self._session_reference_pending = False
+            self.reference_status.setText("Session reference restored · Preview unavailable")
+            QMessageBox.warning(self, "Cannot preview session reference", f"{message}\n\nThe file reference and reviewed transcription are kept. Choose a readable WAV/OGG to repair playback.")
+            return
         if self._closing or not self._importing:
             return
         self._finish_import()
@@ -1049,16 +1242,9 @@ class MainWindow(QMainWindow):
         self.appearance_status.setText(f"{source}: {name.capitalize()}  ")
 
     def closeEvent(self, event: QCloseEvent) -> None:
-        if not self._closing and self.session.has_drafts:
-            answer = QMessageBox.question(
-                self, "Discard text drafts?",
-                "Your transcript and speech text drafts are not saved. Discard them and exit?",
-                QMessageBox.StandardButton.Discard | QMessageBox.StandardButton.Cancel,
-                QMessageBox.StandardButton.Cancel,
-            )
-            if answer != QMessageBox.StandardButton.Discard:
-                event.ignore()
-                return
+        if not self._closing and not self._protect_unsaved_changes("exiting"):
+            event.ignore()
+            return
         self._closing = True
         self.release_resources()
         if self.reference_loader.has_workers or self.transcription.has_workers or self.voice.has_workers:

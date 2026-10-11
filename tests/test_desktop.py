@@ -78,7 +78,8 @@ class DesktopChecks(unittest.TestCase):
     def tearDownClass(cls):
         cls.window.transcript_editor.clear()
         cls.window.speech_editor.clear()
-        cls.window.close()
+        with patch.object(QMessageBox, "question", return_value=QMessageBox.StandardButton.Discard):
+            cls.window.close()
         cls.app.processEvents()
         cls.temp.cleanup()
 
@@ -170,6 +171,8 @@ class DesktopChecks(unittest.TestCase):
                 self.assertTrue(workspace.rect().contains(origin))
                 self.assertTrue(workspace.rect().contains(origin + section.rect().bottomRight()))
                 for child in section.findChildren(QPushButton):
+                    if not child.isVisible():
+                        continue
                     origin = child.mapTo(section, child.rect().topLeft())
                     self.assertTrue(section.rect().contains(origin + child.rect().bottomRight()), child.text())
             self.assertFalse(window.generate_button.isEnabled())
@@ -252,7 +255,8 @@ class DesktopChecks(unittest.TestCase):
         watchdog.timeout.connect(lambda: self.app.exit(99))
         watchdog.start(3000)
         QTimer.singleShot(50, self.window.exit_action.trigger)
-        self.assertEqual(self.app.exec(), 0)
+        with patch.object(QMessageBox, "question", return_value=QMessageBox.StandardButton.Discard):
+            self.assertEqual(self.app.exec(), 0)
         watchdog.stop()
         self.assertFalse(self.window.isVisible())
         self.assertIsNone(self.window.reference_player.media)

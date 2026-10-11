@@ -22,6 +22,9 @@
 # Exported voice profiles contain user voice data
 *.pt
 
+# Workspace sessions contain private text and local file references
+*.qtts.json
+
 # Python bytecode and packaging artifacts
 __pycache__/
 *.py[cod]

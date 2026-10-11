@@ -95,13 +95,15 @@ class QwenVoiceModel:
         check_cancel(cancelled)
         return profile_from_prompt(prompt, mode, self.models, reference)
 
-    def generate(self, profile, text: str, cancelled, report):
+    def generate(self, profile, text: str, settings, cancelled, report):
         text = text.strip()
         if not text:
             raise ValueError("Enter nonempty Speech Text before generating.")
         if profile.compatibility != model_identity(self.models):
             raise ValueError("The voice profile is incompatible with the local model.")
         model = self._ensure_model(cancelled, report)
+        settings.validate(model.get_supported_languages())
+        parameters = settings.arguments()
         import numpy as np
         from qwen_tts import VoiceClonePromptItem
 
@@ -122,7 +124,7 @@ class QwenVoiceModel:
         # is checked immediately afterwards, before any audio is published.
         try:
             wavs, sample_rate = model.generate_voice_clone(
-                text=text, language="Auto", voice_clone_prompt=prompt,
+                text=text, voice_clone_prompt=prompt, **parameters,
                 non_streaming_mode=True, do_sample=True, subtalker_dosample=True,
             )
         except RuntimeError as error:
@@ -147,7 +149,7 @@ class QwenVoiceModel:
             "device": self.device, "precision": self.precision, "attention": self.attention,
             "generation_seconds": seconds, "duration_seconds": audio.size / sample_rate,
             "real_time_factor": seconds / (audio.size / sample_rate),
-            "generation_parameters": {**model.generate_defaults, "language": "Auto", "non_streaming_mode": True,
+            "generation_parameters": {**model.generate_defaults, **parameters, "non_streaming_mode": True,
                                       "do_sample": True, "subtalker_dosample": True},
         }
         recording = prepare_memory_recording(
