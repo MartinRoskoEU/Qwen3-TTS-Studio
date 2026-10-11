@@ -1,0 +1,5 @@
+# Desktop UI and reference waveform decoding; AI dependencies remain separate.
+# Versions already installed and verified in the project-local .cenv.
+PySide6==6.12.0
+SoundFile==0.14.0
+numpy==2.5.3

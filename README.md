@@ -6,9 +6,24 @@ Qwen3 TTS Studio is a Windows-focused application project using Qwen3-TTS and Fa
 
 ## Project Status
 
-**Early development / repository scaffold.**
+**Desktop workspace with reference audio playback (0.1.0).**
 
-Initial local command-line experiments with Qwen3-TTS 1.7B Base and Faster Whisper have succeeded on CPU and an NVIDIA GPU. Those test scripts have been removed in preparation for building the application. **The desktop frontend and its startup command do not yet exist.** The items described under *Planned Features* are goals, not released functionality.
+A runnable PySide6 desktop application is available. The current version includes:
+
+- A compact, resizable workspace with Reference Audio above Transcription on the left, Speech Text above Generation on the right, and a larger Output section across the bottom. Splitters adjust column widths, the panels within each column, and the balance between the workspace and Output.
+- Import one local WAV or OGG recording using Choose reference (`Ctrl+O`) or by dropping it from File Explorer into Reference Audio. The filename and duration appear after validation; the full path is available in the filename tooltip. Import reads the original in place without copying or modifying it.
+- Reference playback uses Qt Multimedia with an actual waveform, a thin moving playhead, one Play/Pause toggle, and current/total time. Play resumes at the paused position and replays from the beginning after completion. Click the waveform to seek or drag to scrub; playback resumes after scrubbing if it was playing. During dragging, the playhead follows the mouse immediately and the paused source seeks on release. The focused codec checks cover PCM WAV and OGG Vorbis; other codec variants depend on the installed decoders and fail with an actionable message if unsupported.
+- Played audio appears in brighter blue with a subtle background tint; unplayed audio uses muted blue-gray in both themes. Qt Widgets/QPainter cache the waveform geometry and rendered layers. Playback interpolates Qt's authoritative position using a monotonic clock, with notification corrections. Qt's shared animation driver schedules updates without an application-defined frame rate; only the changed waveform strip repaints. Continuous animation stops while paused, stopped, stalled, scrubbing, or finished.
+- Output uses the same player component, with playback and Export WAV disabled until generated audio exists. There is no separate timeline slider. Open output folder remains functional.
+- Waveform preparation runs in cancellable background workers with elapsed-time status. Superseded imports cannot replace the active reference. A failed import preserves the previous recording and drafts; successful replacement releases the previous playback source. Keep the source file available during playback.
+- Editable transcript and speech text drafts, with a speech character count. Drafts remain in memory only. Closing with drafts requires discard confirmation; replacing a reference requires confirmation before clearing its transcript. The transcript is temporarily read-only during import and clears only after a different reference loads successfully.
+- Clear reference, next to Choose reference, unloads reference audio and clears its transcription while keeping Speech Text and Output. It asks before discarding nonempty transcription; Cancel leaves the workspace intact. Application > New Voice (`Ctrl+N`) resets the reference, both text drafts, and Output preview, with confirmation whenever the workspace contains content or a pending import. Both actions cancel obsolete loading results and never delete files. New Voice preserves appearance preferences and splitter positions.
+- Centralized light/dark styling that follows Windows appearance by default, including runtime notifications. Settings offers optional Light/Dark overrides and remembers the choice locally through Qt settings.
+- Functional New Voice, Settings, About, and Exit menu actions, and an Open output folder button. Keyboard shortcuts: `Ctrl+N` for New Voice, `Ctrl+O` to select a reference, `Ctrl+,` for Settings, and `Ctrl+Q` to exit. Space toggles the player containing focus; elsewhere it toggles the playing player or Reference Audio (Output if only Output is loaded). Space inside text inputs/editors continues to enter text, and modal dialogs retain their native keyboard behavior.
+
+**Inference, automatic transcription, audio post-processing, and export are not implemented.** Their workflow actions are disabled placeholders. Startup loads Qt Multimedia without importing AI libraries or accessing model weights. SoundFile and NumPy load in the decoding worker when importing a reference. Reference import and playback require no model downloads or network connection.
+
+Initial command-line experiments with Qwen3-TTS and Faster Whisper previously succeeded on CPU and an NVIDIA GPU. Those scripts were removed; those results do not establish model support in the desktop application. The items under *Planned Features* remain goals.
 
 ## Planned Features
 
@@ -29,11 +44,15 @@ Initial local command-line experiments with Qwen3-TTS 1.7B Base and Faster Whisp
 - Windows (initial target)
 - Python 3.12
 - Conda environment located in `.cenv/` inside the project
+- PySide6 / Qt Widgets and Qt Multimedia (verified with version `6.12.0`)
+- SoundFile `0.14.0` / libsndfile `1.2.2` and NumPy `2.5.3` (reference waveform decoding)
 - [Qwen3-TTS](https://github.com/QwenLM/Qwen3-TTS), initially `Qwen3-TTS-12Hz-1.7B-Base`
 - [Faster Whisper](https://github.com/SYSTRAN/faster-whisper), initially Small
-- PyTorch, TorchAudio, and SoundFile
+- PyTorch and TorchAudio (future model integrations)
 
-The original development environment used an RTX 4070 with PyTorch and TorchAudio `2.11.0+cu130`. This is a record of the tested machine, **not a universal requirement**. Compatible installation instructions and pinned dependencies will be finalized when the application is implemented.
+The desktop shell was checked on the development Windows machine using Python `3.12.15` and PySide6 / Qt `6.12.0`. Other platforms and packaged executables have not been tested.
+
+The original AI experiments used an RTX 4070 with PyTorch and TorchAudio `2.11.0+cu130`. This is a record of that machine, **not a universal requirement**. AI installation instructions and compatible versions will be finalized with the model integrations.
 
 ## Repository Layout
 
@@ -46,6 +65,18 @@ Qwen3 TTS Studio/
 │   └── .gitkeep
 ├── samples/               # Reference audio (not tracked)
 │   └── .gitkeep
+├── qwen3_tts_studio/
+│   ├── __main__.py         # python -m entry point
+│   ├── app.py              # Application composition and event loop
+│   ├── application/        # Session state, validation, and cancellable audio loader
+│   ├── audio/              # File validation and waveform envelope preparation
+│   ├── ui/                 # Window, reusable player, waveform, dialogs, and themes
+│   │   └── assets/         # Application icon (Qwen3-TTS-Studio-icon.ico)
+│   └── integrations/       # Reserved boundary for future model adapters
+├── tests/
+│   ├── test_desktop.py     # Focused workspace checks; no inference
+│   └── test_audio.py       # Local codec, playback, drop, and cancellation checks
+├── requirements-desktop.txt
 ├── .gitignore
 ├── AGENTS.md
 ├── LICENSE
@@ -53,7 +84,7 @@ Qwen3 TTS Studio/
 └── THIRD_PARTY_NOTICES.md
 ```
 
-The application source layout has not been selected yet.
+Session state and path validation remain independent of Qt and model libraries. The application layer orchestrates reference decoding through Qt threads; the audio layer reads bounded blocks and produces a compact peak envelope without retaining the entire recording. The reusable UI player owns Qt playback resources and validates a replacement before committing it. Shutdown cancels preparation and keeps the event loop responsive until workers finish. The integration package currently contains no model implementation; future inference and export must also run off the UI thread.
 
 ## Environment Setup
 
@@ -69,7 +100,7 @@ Check that it is active:
 python --version
 ```
 
-The intended Python version is 3.12.
+The intended Python version is 3.12. The existing `.cenv` already contains PySide6, SoundFile, and NumPy; no packages or model files were changed for this implementation.
 
 If you need to recreate the environment on a different machine, you can first create an empty local environment:
 
@@ -78,7 +109,13 @@ conda create --prefix .\.cenv python=3.12 -y
 conda activate .\.cenv
 ```
 
-**This only creates Python, not the application's complete dependencies.** A reproducible dependency manifest and supported installation sequence will be added as part of the implementation. CUDA-enabled PyTorch must be installed from a build appropriate for the target OS, Python version, and GPU driver.
+**This only creates Python.** [requirements-desktop.txt](requirements-desktop.txt) records the verified UI and reference-decoding dependencies, separate from AI dependencies. On a newly created environment, install the desktop dependencies explicitly:
+
+```powershell
+python -m pip install -r requirements-desktop.txt
+```
+
+Recreating an environment has not been tested. A complete AI dependency manifest is still pending. CUDA-enabled PyTorch must be installed from a build appropriate for the target OS, Python version, and GPU driver; it is unnecessary for launching this shell.
 
 ## Models
 
@@ -100,9 +137,27 @@ The Faster Whisper model directory may contain a downloaded-model cache rather t
 
 ## How to Run
 
-**There is no runnable desktop application yet.** The experimental scripts have intentionally been removed, so commands such as `python generate_quest.py` are no longer valid.
+From the repository root in the VS Code PowerShell terminal, use the **verified startup command**:
 
-When the first application entry point is implemented and tested, this section must be updated with the exact command to start it from the VS Code terminal, along with any necessary model installation steps. Until then, only the environment activation instructions above apply.
+```powershell
+& .\.cenv\python.exe -m qwen3_tts_studio
+```
+
+This selects the existing project-local environment without requiring activation. After `conda activate .\.cenv`, the equivalent command is `python -m qwen3_tts_studio`.
+
+No AI model setup is required for the current UI. Missing `PySide6` errors mean the selected Python environment lacks the desktop dependency. Commands for the removed experimental scripts, such as `python generate_quest.py`, are no longer valid.
+
+## Focused Verification
+
+Run from the repository root with a Windows desktop session:
+
+```powershell
+& .\.cenv\python.exe -m unittest discover -s tests -v
+```
+
+The thirteen checks cover startup/window exposure, Exit/event-loop shutdown, resizing and Output visibility, splitter limits and dragging, WAV/OGG import, invalid files, draft protection, muted Qt playback, the Play/Pause toggle, Space handling, seeking/scrubbing, completion/replay, and seeking after completion. Rendering checks verify played/unplayed colors and highlighting in both themes, forward animation, synchronization, partial repainting, cache reuse, and stopped animation when paused. Workspace checks exercise Clear Reference and New Voice confirmation/cancellation, reset during playback, cancellation of worker and Qt loading, and successful imports after reset. File Explorer-style drops use local-file Qt drag/drop events. Appearance preferences and simulated Qt system notifications are checked; Settings and About are exercised, and the output-folder action uses a mocked OS launcher. Tests use temporary synthetic recordings/settings and a stand-in Output recording, not inference, user recordings, or model data.
+
+Light/dark waveform rendering and the minimum-size layout were also visually reviewed locally. Automated theme checks exercise Qt's notification path without changing Windows personalization settings; a real Windows Settings toggle during execution remains a manual check. Audible speaker output, physical Explorer dragging, multi-monitor DPI changes, other codec variants, and other machines are outside the automated checks. There is no inference or packaged-build verification in this scope.
 
 ## Project Data
 
